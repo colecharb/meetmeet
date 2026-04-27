@@ -36,12 +36,13 @@ def _ask_with_back(question):
     """Bind escape to exit the prompt with None (same outcome as Ctrl-C),
     so callers can treat None as 'go back'."""
     app = question.application
-    # Default 0.5s timeout to disambiguate ESC from arrow-key escape sequences
-    # makes ESC feel laggy. Arrow keys arrive within microseconds, so 50ms is
-    # safe and feels instant.
-    app.ttimeoutlen = 0.05
+    # ttimeoutlen guards bare-ESC vs. escape-sequence disambiguation; set low
+    # so arrow keys still parse but bare ESC fires fast.
+    app.ttimeoutlen = 0.01
 
-    @app.key_bindings.add("escape")
+    # eager=True is the critical bit: without it, prompt_toolkit waits
+    # `timeoutlen` (~1s) to see if a longer Meta-prefixed binding will match.
+    @app.key_bindings.add("escape", eager=True)
     def _(event):
         event.app.exit(result=None)
     return question.ask()
