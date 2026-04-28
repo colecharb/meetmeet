@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import pydoc
 import queue
+import re
 import select
 import signal
 import sys
@@ -31,6 +32,8 @@ from .summary import get_backend as get_summary_backend
 
 
 console = Console()
+
+_TIMESTAMP_TITLE_RE = re.compile(r"\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}")
 
 
 def _ask_with_back(question):
@@ -104,7 +107,7 @@ def main() -> None:
 def run_new_meeting(cfg: Config, pre: PreflightResult) -> None:
     started_at = datetime.now()
     default_title = started_at.strftime("%Y-%m-%d_%H-%M-%S")
-    title = ask_text("Meeting title?", default=default_title)
+    title = ask_text("Meeting title?", placeholder=default_title)
     if title is None:
         return
     title = title.strip() or default_title
@@ -330,9 +333,11 @@ def browse_past_meetings(cfg: Config) -> None:
         for m in visible:
             tag = "[summary]" if m.has_summary else "[no summary]"
             when = m.started_at.strftime("%Y-%m-%d %H:%M") if m.started_at else "?"
+            name = "" if _TIMESTAMP_TITLE_RE.fullmatch(m.title) else m.title
+            label = f"{when}  {name}  {tag}" if name else f"{when}  {tag}"
             choices.append(
                 questionary.Choice(
-                    title=f"{when}  {m.title}  {tag}",
+                    title=label,
                     value=("meeting", m),
                 )
             )
