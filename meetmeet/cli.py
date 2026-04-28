@@ -8,6 +8,7 @@ import select
 import signal
 import sys
 import termios
+import textwrap
 import threading
 import time
 import tty
@@ -329,20 +330,31 @@ def browse_past_meetings(cfg: Config) -> None:
             console.print("[dim]No meetings yet.[/dim]")
             return
         visible = meetings[:show_n]
-        choices = []
+        choices = [questionary.Separator(" ")]
+        when_w = 16  # YYYY-MM-DD HH:MM
+        tag_w = len("(no summary)")
+        sep = "  "
+        # questionary prepends a 3-char indicator (" » " / "   ") to every row.
+        name_w = max(10, console.size.width - 3 - tag_w - len(sep) * 2 - when_w)
+        cont_pad = " " * (tag_w + len(sep) + when_w + len(sep))
         for m in visible:
-            tag = "[summary]" if m.has_summary else "[no summary]"
-            when = m.started_at.strftime("%Y-%m-%d %H:%M") if m.started_at else "?"
-            name = "" if _TIMESTAMP_TITLE_RE.fullmatch(m.title) else m.title
-            label = f"{when}  {name}  {tag}" if name else f"{when}  {tag}"
+            tag = ("(summary)" if m.has_summary else "(no summary)").rjust(tag_w)
+            when = (
+                m.started_at.strftime("%Y-%m-%d %H:%M") if m.started_at else "?"
+            ).ljust(when_w)
+            raw_name = "" if _TIMESTAMP_TITLE_RE.fullmatch(m.title) else m.title
+            name_lines = textwrap.wrap(raw_name, width=name_w) or [""]
+            first = f"{tag}{sep}{when}{sep}{name_lines[0]}"
+            rest = [f"{cont_pad}{ln}" for ln in name_lines[1:]]
             choices.append(
                 questionary.Choice(
-                    title=label,
+                    title="\n".join([first, *rest]),
                     value=("meeting", m),
                 )
             )
         if show_n < len(meetings):
             choices.append(questionary.Choice(title="[Show more]", value=("more", None)))
+        choices.append(questionary.Separator(" "))
         choices.append(questionary.Choice(title="[Back]", value=("back", None)))
 
         ans = ask_select("Past meetings", choices=choices)
