@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 import questionary
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -42,9 +43,18 @@ def _ask_with_back(question):
 
     # eager=True is the critical bit: without it, prompt_toolkit waits
     # `timeoutlen` (~1s) to see if a longer Meta-prefixed binding will match.
-    @app.key_bindings.add("escape", eager=True)
+    kb = KeyBindings()
+
+    @kb.add("escape", eager=True)
     def _(event):
         event.app.exit(result=None)
+
+    # questionary.text/confirm hand back a `_MergedKeyBindings` (read-only)
+    # while questionary.select hands back a mutable `KeyBindings`. Merging
+    # works for both shapes.
+    app.key_bindings = merge_key_bindings(
+        [app.key_bindings, kb] if app.key_bindings else [kb]
+    )
     return question.ask()
 
 
