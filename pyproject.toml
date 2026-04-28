@@ -26,4 +26,4 @@ faster = ["faster-whisper>=1.0"]
 meetmeet = "meetmeet.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["meetmeet"]
+packages = ["src/meetmeet"]
