@@ -62,7 +62,24 @@ def _ask_with_back(question):
     return question.ask()
 
 
+_EXIT_CHOICE_TITLES = {"back", "[back]", "quit", "[quit]"}
+
+
+def _decorate_menu_choices(choices):
+    """Add a blank Separator above the first option, and another above any
+    trailing Back/Quit option, for visual breathing room."""
+    def title_of(c):
+        raw = c if isinstance(c, str) else getattr(c, "title", None)
+        return raw.strip().lower() if isinstance(raw, str) else None
+
+    decorated = [questionary.Separator(" "), *choices]
+    if decorated and title_of(decorated[-1]) in _EXIT_CHOICE_TITLES:
+        decorated.insert(-1, questionary.Separator(" "))
+    return decorated
+
+
 def ask_select(message, choices, **kwargs):
+    choices = _decorate_menu_choices(choices)
     return _ask_with_back(questionary.select(message, choices=choices, **kwargs))
 
 
@@ -330,7 +347,7 @@ def browse_past_meetings(cfg: Config) -> None:
             console.print("[dim]No meetings yet.[/dim]")
             return
         visible = meetings[:show_n]
-        choices = [questionary.Separator(" ")]
+        choices = []
         when_w = 16  # YYYY-MM-DD HH:MM
         tag_w = len("(no summary)")
         sep = "  "
@@ -354,7 +371,6 @@ def browse_past_meetings(cfg: Config) -> None:
             )
         if show_n < len(meetings):
             choices.append(questionary.Choice(title="[Show more]", value=("more", None)))
-        choices.append(questionary.Separator(" "))
         choices.append(questionary.Choice(title="[Back]", value=("back", None)))
 
         ans = ask_select("Past meetings", choices=choices)
