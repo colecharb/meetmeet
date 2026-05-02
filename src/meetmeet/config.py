@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,3 +102,43 @@ def load() -> tuple[Config, bool]:
         ),
     )
     return cfg, created
+
+
+_SECTION_RE = re.compile(r"^\s*\[([^\]]+)\]\s*$")
+_MODEL_LINE_RE = re.compile(r'^(\s*model\s*=\s*)("[^"]*"|\'[^\']*\')(\s*)$')
+
+
+def save_summary_model(model: str) -> None:
+    """Rewrite only the `model = "..."` line under [summary] in config.toml.
+
+    Preserves all other content (comments, formatting, triple-quoted strings)
+    by walking lines and replacing the first model assignment found inside
+    the [summary] section. Atomic via tmp-file + os.replace.
+    """
+    text = CONFIG_PATH.read_text()
+    lines = text.splitlines(keepends=True)
+    in_summary = False
+    replaced = False
+    for i, line in enumerate(lines):
+        section = _SECTION_RE.match(line)
+        if section:
+            in_summary = section.group(1).strip() == "summary"
+            continue
+        if in_summary and not replaced:
+            m = _MODEL_LINE_RE.match(line)
+            if m:
+                escaped = model.replace('"', '\\"')
+                newline = "\n" if line.endswith("\n") else ""
+                lines[i] = f'{m.group(1)}"{escaped}"{m.group(3).rstrip()}{newline}'
+                replaced = True
+                break
+
+    if not replaced:
+        raise RuntimeError(
+            f"Could not find `model = \"...\"` under [summary] in {CONFIG_PATH}; "
+            "edit it manually."
+        )
+
+    tmp = CONFIG_PATH.with_suffix(CONFIG_PATH.suffix + ".tmp")
+    tmp.write_text("".join(lines))
+    os.replace(tmp, CONFIG_PATH)
