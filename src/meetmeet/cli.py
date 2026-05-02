@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import os
-import pydoc
 import queue
 import re
 import select
@@ -19,8 +18,13 @@ from pathlib import Path
 
 import httpx
 import questionary
-from prompt_toolkit.application import run_in_terminal
+from prompt_toolkit.application import Application, run_in_terminal
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.document import Document
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.containers import Window
+from prompt_toolkit.layout.controls import BufferControl
 from questionary.prompts.common import InquirerControl
 from rich.console import Console
 from rich.live import Live
@@ -127,6 +131,59 @@ def ask_select_with_keys(message, choices, extra_keys, **kwargs):
         [app.key_bindings, kb] if app.key_bindings else [kb]
     )
     return q.ask()
+
+
+def _view_text(text: str) -> None:
+    """Scrollable plain-text viewer. ESC, q, or Ctrl-C exits."""
+    buf = Buffer(document=Document(text, 0), read_only=True)
+
+    kb = KeyBindings()
+
+    @kb.add("escape", eager=True)
+    @kb.add("q")
+    @kb.add("c-c")
+    def _exit(event):
+        event.app.exit()
+
+    @kb.add("up")
+    @kb.add("k")
+    def _up(event):
+        buf.cursor_up()
+
+    @kb.add("down")
+    @kb.add("j")
+    def _down(event):
+        buf.cursor_down()
+
+    @kb.add("pageup")
+    @kb.add("c-b")
+    def _pgup(event):
+        buf.cursor_up(count=20)
+
+    @kb.add("pagedown")
+    @kb.add("c-f")
+    @kb.add("space")
+    def _pgdn(event):
+        buf.cursor_down(count=20)
+
+    @kb.add("home")
+    @kb.add("g")
+    def _home(event):
+        buf.cursor_position = 0
+
+    @kb.add("end")
+    @kb.add("G")
+    def _end(event):
+        buf.cursor_position = len(text)
+
+    app = Application(
+        layout=Layout(Window(BufferControl(buffer=buf), wrap_lines=True)),
+        key_bindings=kb,
+        full_screen=True,
+        mouse_support=False,
+    )
+    app.ttimeoutlen = 0.01
+    app.run()
 
 
 def ask_text(message, **kwargs):
@@ -493,9 +550,9 @@ def _meeting_actions(cfg: Config, meeting: storage.MeetingInfo) -> None:
         if ans is None or ans == "Back":
             return
         if ans == "Open transcript":
-            pydoc.pager(storage.read_transcript(meeting.path))
+            _view_text(storage.read_transcript(meeting.path))
         elif ans == "Open summary":
-            pydoc.pager((meeting.path / storage.SUMMARY_FILENAME).read_text())
+            _view_text((meeting.path / storage.SUMMARY_FILENAME).read_text())
         elif ans in ("Generate summary", "Re-summarize"):
             meta = storage.read_meta(meeting.path) or {
                 "title": meeting.title,
