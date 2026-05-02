@@ -18,6 +18,7 @@ class OllamaBackend(SummaryBackend):
         payload = {
             "model": self.model,
             "stream": True,
+            "think": False,
             "messages": [
                 {"role": "system", "content": self.system_prompt},
                 {
