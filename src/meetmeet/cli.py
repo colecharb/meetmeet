@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import os
 import pydoc
 import queue
@@ -16,6 +17,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 import questionary
 from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
@@ -29,10 +31,11 @@ from rich.text import Text
 from . import storage
 from .audio import AudioPipeline, TranscribeChunk, WHISPER_RATE
 from .clipboard import copy_to_clipboard
-from .config import Config, load as load_config
+from .config import Config, load as load_config, save_summary_model
 from .setup_check import PreflightResult, run as run_preflight
 from .stt import STTBackend, get_backend as get_stt_backend
 from .summary import get_backend as get_summary_backend
+from .summary.ollama_backend import list_local_models
 
 
 console = Console()
@@ -153,7 +156,7 @@ def main() -> None:
     while True:
         choice = ask_select(
             "What would you like to do?",
-            choices=["Start a new meeting", "Browse past meetings", "Quit"],
+            choices=["Start a new meeting", "Browse past meetings", "Config", "Quit"],
         )
         if choice is None or choice == "Quit":
             return
@@ -161,6 +164,8 @@ def main() -> None:
             run_new_meeting(cfg, pre)
         elif choice == "Browse past meetings":
             browse_past_meetings(cfg)
+        elif choice == "Config":
+            cfg = run_config_menu(cfg)
 
 
 # --- new meeting ----------------------------------------------------------------
@@ -486,6 +491,75 @@ def _meeting_actions(cfg: Config, meeting: storage.MeetingInfo) -> None:
                 "started_at": meeting.started_at.isoformat() if meeting.started_at else "",
             }
             _run_summary(cfg, meeting.path, meta)
+
+
+# --- config -------------------------------------------------------------------
+
+def run_config_menu(cfg: Config) -> Config:
+    while True:
+        info = (
+            f"[bold]Summary[/bold]\n"
+            f"  model: {cfg.summary.model}\n"
+            f"  ollama_url: {cfg.summary.ollama_url}"
+        )
+        console.print(Panel(info, title="Config", border_style="blue"))
+
+        choice = ask_select(
+            "Config",
+            choices=["Change summary model", "Back"],
+        )
+        if choice is None or choice == "Back":
+            return cfg
+        if choice == "Change summary model":
+            cfg = _pick_summary_model(cfg)
+
+
+def _pick_summary_model(cfg: Config) -> Config:
+    try:
+        models = list_local_models(cfg.summary.ollama_url)
+    except httpx.HTTPError as e:
+        console.print(
+            f"[red]Could not reach Ollama at {cfg.summary.ollama_url}: {e}[/red]"
+        )
+        return cfg
+
+    if not models:
+        console.print(
+            "[yellow]No local Ollama models found.[/yellow] "
+            "Pull one first, e.g. [cyan]ollama pull qwen3.5:4b[/cyan]"
+        )
+        return cfg
+
+    current = cfg.summary.model
+    choices = []
+    default_choice = None
+    for name in models:
+        title = f"{name} (current)" if name == current else name
+        c = questionary.Choice(title=title, value=name)
+        choices.append(c)
+        if name == current:
+            default_choice = c
+    choices.append(questionary.Choice(title="[Back]", value=None))
+
+    picked = ask_select(
+        "Summary model",
+        choices=choices,
+        default=default_choice,
+    )
+    if picked is None or picked == current:
+        return cfg
+
+    try:
+        save_summary_model(picked)
+    except Exception as e:
+        console.print(f"[red]Failed to save config:[/red] {e}")
+        return cfg
+
+    console.print(f"[green]Summary model set to {picked}[/green]")
+    return dataclasses.replace(
+        cfg,
+        summary=dataclasses.replace(cfg.summary, model=picked),
+    )
 
 
 if __name__ == "__main__":

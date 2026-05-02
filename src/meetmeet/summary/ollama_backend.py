@@ -8,6 +8,15 @@ import httpx
 from .base import SummaryBackend
 
 
+def list_local_models(url: str, timeout: float = 2.0) -> list[str]:
+    """Return sorted model names from Ollama's /api/tags. Raises httpx.HTTPError on failure."""
+    r = httpx.get(f"{url.rstrip('/')}/api/tags", timeout=timeout)
+    r.raise_for_status()
+    data = r.json()
+    names = [m.get("name", "") for m in data.get("models", [])]
+    return sorted(n for n in names if n)
+
+
 class OllamaBackend(SummaryBackend):
     def __init__(self, url: str, model: str, system_prompt: str):
         self.url = url.rstrip("/")
