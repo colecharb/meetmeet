@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "meetmeet"
-version = "0.1.2"
+version = "0.1.3"
 description = "Lightweight terminal app for capturing meeting audio and producing live transcripts."
 readme = "README.md"
 requires-python = ">=3.11"
