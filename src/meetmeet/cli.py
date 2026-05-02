@@ -17,7 +17,9 @@ from datetime import datetime
 from pathlib import Path
 
 import questionary
+from prompt_toolkit.application import run_in_terminal
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+from questionary.prompts.common import InquirerControl
 from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
@@ -26,6 +28,7 @@ from rich.text import Text
 
 from . import storage
 from .audio import AudioPipeline, TranscribeChunk, WHISPER_RATE
+from .clipboard import copy_to_clipboard
 from .config import Config, load as load_config
 from .setup_check import PreflightResult, run as run_preflight
 from .stt import STTBackend, get_backend as get_stt_backend
@@ -81,6 +84,46 @@ def _decorate_menu_choices(choices):
 def ask_select(message, choices, **kwargs):
     choices = _decorate_menu_choices(choices)
     return _ask_with_back(questionary.select(message, choices=choices, **kwargs))
+
+
+def ask_select_with_keys(message, choices, extra_keys, **kwargs):
+    """Like ask_select, but binds extra single-key handlers that receive the
+    currently focused choice value. Each handler returns an optional string
+    to print as transient feedback (rendered via rich)."""
+    decorated = _decorate_menu_choices(choices)
+    q = questionary.select(message, choices=decorated, **kwargs)
+    app = q.application
+    app.ttimeoutlen = 0.01
+
+    control = next(
+        (c for c in app.layout.find_all_controls() if isinstance(c, InquirerControl)),
+        None,
+    )
+
+    kb = KeyBindings()
+
+    @kb.add("escape", eager=True)
+    def _(event):
+        event.app.exit(result=None)
+
+    def _make_handler(handler):
+        def _on_key(event):
+            if control is None:
+                return
+            choice = control.get_pointed_at()
+            value = getattr(choice, "value", None) or getattr(choice, "title", None)
+            msg = handler(value)
+            if msg:
+                run_in_terminal(lambda: console.print(msg))
+        return _on_key
+
+    for key, handler in extra_keys.items():
+        kb.add(key, eager=True)(_make_handler(handler))
+
+    app.key_bindings = merge_key_bindings(
+        [app.key_bindings, kb] if app.key_bindings else [kb]
+    )
+    return q.ask()
 
 
 def ask_text(message, **kwargs):
@@ -408,7 +451,29 @@ def _meeting_actions(cfg: Config, meeting: storage.MeetingInfo) -> None:
             choices.append("Generate summary")
         choices.append("Back")
 
-        ans = ask_select("Action", choices=choices)
+        def _copy(focused):
+            if focused == "Open transcript":
+                ok = copy_to_clipboard(storage.read_transcript(meeting.path))
+                return (
+                    "[green]Transcript copied to clipboard[/green]"
+                    if ok
+                    else "[red]Copy failed (pbcopy unavailable)[/red]"
+                )
+            if focused == "Open summary":
+                text = (meeting.path / storage.SUMMARY_FILENAME).read_text()
+                ok = copy_to_clipboard(text)
+                return (
+                    "[green]Summary copied to clipboard[/green]"
+                    if ok
+                    else "[red]Copy failed (pbcopy unavailable)[/red]"
+                )
+            return None
+
+        ans = ask_select_with_keys(
+            "Action  [c to copy focused]",
+            choices=choices,
+            extra_keys={"c": _copy},
+        )
         if ans is None or ans == "Back":
             return
         if ans == "Open transcript":
